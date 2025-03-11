@@ -1,0 +1,194 @@
+import streamlit as st
+import pickle
+import requests
+import base64
+from pathlib import Path
+
+
+
+def set_bg(image_path):
+    if not Path(image_path).is_file():
+        st.error(f"Background image file not found at: {image_path}")
+        return
+
+    with open(image_path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode()
+
+    page_bg_img = f"""
+    <style>
+    .stApp {{
+        background-image: url("data:image/jpeg;base64,{encoded_string}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }}
+    </style>
+    """
+    st.markdown(page_bg_img, unsafe_allow_html=True)
+
+
+
+def fetch_movie_details(movie_name):
+    api_key = '70a24a13a16925eb3257320307164cfa'
+    search_url = f'https://api.themoviedb.org/3/search/movie?api_key={api_key}&query={movie_name}'
+    response = requests.get(search_url)
+    data = response.json()
+
+    if data['results']:
+        movie_id = data['results'][0]['id']
+        poster_url = f"https://image.tmdb.org/t/p/w500{data['results'][0]['poster_path']}"
+
+
+        movie_details_url = f'https://api.themoviedb.org/3/movie/{movie_id}?api_key={api_key}&append_to_response=credits'
+        movie_details_response = requests.get(movie_details_url)
+        movie_details_data = movie_details_response.json()
+
+
+        overview = movie_details_data.get('overview', 'Overview not available')
+        rating = movie_details_data.get('vote_average', 'Rating not available')
+        cast = [actor['name'] for actor in
+                movie_details_data.get('credits', {}).get('cast', [])[:5]]  # Top 5 cast members
+
+        return poster_url, overview, rating, cast
+    else:
+        return "https://via.placeholder.com/150", "No Overview", "No Rating", []
+
+
+
+def recommend(movie, movies, similary):
+    index = movies[movies['Movie_name'] == movie].index[0]
+    distances = sorted(list(enumerate(similary[index])), reverse=True, key=lambda x: x[1])
+    recommended_movies = [movies.iloc[i[0]].Movie_name for i in distances[1:15]]
+    return recommended_movies
+
+
+
+def login_page():
+    set_bg("b8.jpg")  # Set the background image
+    st.markdown(
+        "<h1 style='text-align: center; color: white;'>Welcome to WatchWise-A Cineworld</h1>",
+        unsafe_allow_html=True
+    )
+
+    user_id = st.text_input("User ID", placeholder="Enter your User ID")
+    password = st.text_input("Password", type="password", placeholder="Enter your password")
+
+    if st.button("Login"):
+        st.session_state.logged_in = True
+        st.success("Login Successful!")
+
+    st.markdown(
+        "<h2 style='text-align: center; color: white;'>CINEMA ICON</h2>",
+        unsafe_allow_html=True
+    )
+
+    actor_images = ["a1.jpg", "a2.jpg", "j.png", "r.jpg", "m.jpg", "s.jpg", "p.jpg"]
+    actor_names = ["Mahesh Babu", "Sai Pallavi", "Genelia", "Ram Pothineni", "Mrunal Thakur", "Samantha", "Prabhas"]
+
+    if "actor_index" not in st.session_state:
+        st.session_state.actor_index = 0
+
+    col1, col2, col3 = st.columns([1, 4, 1])
+
+    with col1:
+        st.empty()
+
+    with col2:
+        display_actor_images(actor_images, actor_names, st.session_state.actor_index)
+
+    with col3:
+        st.empty()
+
+    with col1:
+        if st.button("← Previous"):
+            st.session_state.actor_index = max(0, st.session_state.actor_index - 3)
+
+    with col3:
+        if st.button("Next →"):
+            st.session_state.actor_index = min(len(actor_images) - 3, st.session_state.actor_index + 3)
+
+    st.markdown(
+        "<h2 style='text-align: center; color: white;'>Highest Grossing Indian Movies</h2>",
+        unsafe_allow_html=True
+    )
+
+    highest_grossing_movies = [
+        {"name": "DANGAL", "image": "d2.jpg"},
+        {"name": "BAHUBALI:THE CONCLUSION", "image": "bb2.jpg"},
+        {"name": "PUSHPA:THE RULE", "image": "p3.jpg"},
+        {"name": "KGF:CHAPTER 2", "image": "kgf2.jpeg"},
+        {"name": "RRR", "image": "rrr.jpg"},
+        {"name": "JAWAN", "image": "j.jpg"}
+    ]
+
+    cols = st.columns(len(highest_grossing_movies))
+    for col, movie in zip(cols, highest_grossing_movies):
+        with col:
+            st.image(movie["image"], width=700)
+            st.write(movie["name"])
+
+
+
+
+def display_actor_images(actor_images, actor_names, start_index):
+    cols = st.columns(3)
+    for col, img, name in zip(cols, actor_images[start_index:start_index + 3],
+                              actor_names[start_index:start_index + 3]):
+        col.image(img, caption=name, use_container_width=True)
+
+
+
+def movie_recommendation_page():
+    # Load movie data
+    movies = pickle.load(open("movies (1).pkl", "rb"))
+    similary = pickle.load(open("similary (1).pkl", "rb"))
+
+    set_bg("b8.jpg")
+    st.markdown(
+        "<h1 style='text-align: center; color: white;'>WatchWise - A Cineworld</h1>",
+        unsafe_allow_html=True
+    )
+
+    selected_movie_name = st.selectbox("Select Movie", movies['Movie_name'].values)
+
+    if st.button("Recommend"):
+        recommendations = recommend(selected_movie_name, movies, similary)
+        st.subheader("Recommended Movies:")
+
+        for i in range(0, 15, 5):
+            cols = st.columns(5)
+            for col, j in zip(cols, range(i, i + 5)):
+                if j < len(recommendations):
+                    movie_title = recommendations[j]
+                    poster_url, overview, rating, cast = fetch_movie_details(movie_title)
+
+                    with col:
+                        st.image(poster_url, width=130)
+                        st.write(movie_title)
+
+                        # Store movie clicked for more info
+                        if st.button(f"More info about {movie_title}", key=movie_title):
+                            # Store movie details in session state
+                            st.session_state.selected_movie = movie_title
+                            st.session_state.movie_details = (poster_url, overview, rating, cast)
+
+
+    if "selected_movie" in st.session_state:
+        movie_title = st.session_state.selected_movie
+        poster_url, overview, rating, cast = st.session_state.movie_details
+
+        st.subheader(f"{movie_title} Overview")
+        st.image(poster_url, width=200)
+        st.write(f"**Rating:** {rating}/10")
+        st.write(f"**Overview:** {overview}")
+        st.write("**Cast:** " + ", ".join(cast))
+
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if not st.session_state.logged_in:
+    login_page()
+else:
+    movie_recommendation_page()
